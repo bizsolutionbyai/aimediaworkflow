@@ -40,6 +40,11 @@ so the prompt preview in the UI and the prompt sent by the engine are produced b
 
 ## Data model (SQLite via Prisma)
 
+The database is created and upgraded at server start by `backend/src/migrate.ts`, which applies the SQL files in
+`backend/prisma/migrations/` (tracked in the `_amw_migrations` table). End users therefore never run the Prisma CLI.
+After changing `schema.prisma`, add a new numbered migration folder (`npx prisma migrate diff --from-schema <old> --to-schema prisma/schema.prisma --script`).
+
+
 `backend/prisma/schema.prisma`:
 
 | Table | Notes |

@@ -13,52 +13,39 @@ then show **"Provider not configured"** instead of pretending to work.
 
 ## Install and run on Windows 10/11
 
-### 1. Prerequisites
+**One click:** download the repository (GitHub → **Code → Download ZIP**), extract it to a folder you can write to
+(e.g. `C:\AIMediaWorkflow`, not `C:\Program Files`), then double-click **`khoidong.bat`**.
+Vietnamese step-by-step guide: [HUONG-DAN-CAI-DAT.txt](HUONG-DAN-CAI-DAT.txt).
 
-| What | Why | How |
-|---|---|---|
-| **Node.js 20.19+ (22 LTS recommended)** | runs the app | Install the "LTS" Windows installer from <https://nodejs.org/>. Keep the default options. |
-| Git (optional) | clone the repo | <https://git-scm.com/download/win>, or download the repository as a ZIP and extract it. |
-| ffmpeg (optional) | only for the **Final Video** node (concatenates clips) | `winget install Gyan.FFmpeg`, or download from <https://www.gyan.dev/ffmpeg/builds/> and add its `bin` folder to `PATH` (or set `FFMPEG_PATH` in `.env`). |
+On the first run (needs Internet, a few minutes) `khoidong.bat` → `scripts/khoidong.ps1`:
 
-Check Node in a new Command Prompt: `node -v` should print `v20.19.0` or newer.
+1. uses Node.js **22.12+** if it is installed; otherwise downloads **portable Node.js 22 LTS** into `runtime\node`
+   (no admin rights, nothing installed system-wide),
+2. creates `.env` from `.env.example`,
+3. runs `npm install` (again only when `package-lock.json` changes),
+4. builds the web UI (again only when the UI source changes),
+5. starts the server — the SQLite database `data\app.db` is created/migrated automatically — and opens <http://127.0.0.1:8787>.
 
-### 2. Get the code
+Later runs start in seconds. Running `khoidong.bat` while the app is already running just opens the browser.
+Stop with **`dung.bat`** or by closing the window. (`start.bat` / `stop.bat` are English aliases.)
 
-```bat
-git clone https://github.com/bizsolutionbyai/aimediaworkflow.git
-cd aimediaworkflow
-```
+If Windows SmartScreen says "Windows protected your PC", click **More info → Run anyway**.
 
-Use a folder path without special permissions (e.g. `C:\Projects\aimediaworkflow`), not `C:\Program Files`.
+Optional:
+- **API keys**: edit `.env` (next to `khoidong.bat`), then restart:
 
-### 3. Start
+  ```ini
+  OPENAI_API_KEY=sk-...        # GPT Image, Sora video, OpenAI TTS, OpenAI chat assistant
+  GOOGLE_API_KEY=...           # Gemini image, Veo video
+  GROK_API_KEY=...             # xAI Grok image
+  ELEVENLABS_API_KEY=...       # ElevenLabs voice
+  REPLICATE_API_TOKEN=...      # Lip Sync (Replicate)
+  ANTHROPIC_API_KEY=...        # Claude for the AI Assistant
+  ```
 
-Double-click **`start.bat`** (or run it from Command Prompt). On the first run it:
-
-1. creates `.env` from `.env.example`,
-2. runs `npm install` (a few minutes; downloads dependencies including a prebuilt SQLite driver),
-3. creates/updates the SQLite database `data\app.db` (`npm run setup`),
-4. builds the web UI,
-5. starts the server and opens <http://127.0.0.1:8787> in your browser.
-
-Leave the window open while you work. To stop, close the window or double-click **`stop.bat`**.
-
-### 4. (Optional) Add API keys
-
-Open `.env` in a text editor, fill in the keys you have, save, then restart (`stop.bat`, `start.bat`):
-
-```ini
-OPENAI_API_KEY=sk-...        # GPT Image, Sora video, OpenAI TTS, OpenAI chat assistant
-GOOGLE_API_KEY=...           # Gemini image, Veo video
-GROK_API_KEY=...             # xAI Grok image
-ELEVENLABS_API_KEY=...       # ElevenLabs voice
-ANTHROPIC_API_KEY=...        # Claude for the AI Assistant
-REPLICATE_API_TOKEN=...      # Lip Sync (Replicate)
-```
-
-Keys are read only by the local server. They are never stored in the database, sent to the browser, or written to exported Markdown.
-**Settings (gear icon) → Providers** shows which providers are configured.
+  Keys are read only by the local server. They are never stored in the database, sent to the browser, or written to exported Markdown.
+  **Settings (gear icon) → Providers** shows which providers are configured.
+- **ffmpeg** (Final Video node): `winget install Gyan.FFmpeg`, or set `FFMPEG_PATH` in `.env`.
 
 ### Developer mode (hot reload)
 
@@ -77,8 +64,8 @@ All scripts work in Command Prompt, PowerShell and on macOS/Linux.
 
 ## Quick start (Vietnamese)
 
-1. Cài **Node.js 22 LTS** từ nodejs.org.
-2. Tải mã nguồn, mở thư mục, chạy **`start.bat`**. Trình duyệt mở <http://127.0.0.1:8787>.
+1. Không cần cài gì trước (xem chi tiết trong HUONG-DAN-CAI-DAT.txt).
+2. Tải mã nguồn (Code → Download ZIP), giải nén, bấm đúp **`khoidong.bat`**. Lần đầu script tự tải Node.js portable và thư viện; trình duyệt tự mở <http://127.0.0.1:8787>. Tắt bằng **`dung.bat`**.
 3. Tạo **Project** (vd. "Dầu xả ABC") → tạo **Space** (vd. "TikTok Review 60s").
 4. Tab **Characters / Products**: tạo MODEL_001, PRODUCT_001, upload ảnh tham chiếu.
 5. Tab **Scripts** → **Open Master Script editor**: viết kịch bản dạng `Scene 1: Hook` … → **Save** → **Generate storyboard**.
@@ -188,7 +175,8 @@ Model names can be overridden per node or with `<PROVIDER>_MODEL` in `.env`. Add
 /data         app.db, assets/, outputs/, logs/ and mirror copies (projects/, workflows/, scripts/, prompts/)
 /exports      Markdown exports
 /docs         ARCHITECTURE.md, WORKFLOW-SCHEMA.md, MARKDOWN-SCHEMA.md, PROVIDER-SDK.md
-start.bat / stop.bat / .env.example
+khoidong.bat / dung.bat (+ start.bat / stop.bat aliases), scripts/khoidong.ps1, HUONG-DAN-CAI-DAT.txt, .env.example
+/runtime      portable Node.js (created on first run if needed; not in git)
 ```
 
 ## MarketingOS integration (Phase 5)

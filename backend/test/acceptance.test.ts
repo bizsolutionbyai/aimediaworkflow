@@ -73,7 +73,6 @@ async function upload(app: FastifyInstance, projectId: string, files: [string, U
 
 beforeAll(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "amw-"));
-  execSync("npx prisma db push", { cwd: BACKEND, env: { ...process.env, DATA_DIR: path.join(tmp, "data") }, stdio: "ignore" });
   if (hasFfmpeg()) {
     const f = path.join(tmp, "clip.mp4");
     execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "color=c=red:s=64x112:d=1", "-pix_fmt", "yuv420p", f], { stdio: "ignore" });
@@ -257,7 +256,6 @@ describe("MVP acceptance flow", () => {
     for (const f of exp.files) files[`picked/${f}`] = fs.readFileSync(path.join(dir, f), "utf8");
     await app.close();
     const fresh = path.join(tmp, "fresh");
-    execSync("npx prisma db push", { cwd: BACKEND, env: { ...process.env, DATA_DIR: fresh }, stdio: "ignore" });
     const { app: app2 } = await buildApp({ config: { dataDir: fresh, exportDir: path.join(tmp, "exports2"), env: {} } });
     const r = await json(app2, "POST", "/api/import", { files });
     expect(r.created).toEqual(expect.arrayContaining(["project " + state.projectId, "space " + spaceId, "reference MODEL_001", "scene SCENE_005", "workflow"]));

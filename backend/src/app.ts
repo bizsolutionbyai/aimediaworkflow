@@ -8,6 +8,7 @@ import { MarkdownImportError, WorkflowError } from "@amw/shared";
 import { ProviderError, ProviderNotConfiguredError, ProviderRegistry } from "@amw/providers";
 import { loadConfig, type AppConfig } from "./config";
 import { createDb, type Db } from "./db";
+import { migrate } from "./migrate";
 import { coreRoutes, seedPrompts } from "./routes/core";
 import { integrationRoutes } from "./routes/integration";
 import { opsRoutes } from "./routes/ops";
@@ -31,6 +32,7 @@ export interface BuildOptions {
 
 export async function buildApp(opts: BuildOptions = {}) {
   const cfg = loadConfig(opts.config);
+  migrate(cfg.dataDir);
   const db = createDb(cfg.dataDir);
   const registry = new ProviderRegistry(cfg.env);
   const fetchImpl = opts.fetch ?? fetch;

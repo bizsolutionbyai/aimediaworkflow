@@ -81,7 +81,6 @@ async function runAndWait(app: FastifyInstance, engine: { whenIdle(): Promise<vo
 
 beforeAll(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "amw-f-"));
-  execSync("npx prisma db push", { cwd: BACKEND, env: { ...process.env, DATA_DIR: path.join(tmp, "data") }, stdio: "ignore" });
   if (hasFfmpeg) {
     execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "color=c=blue:s=64x112:d=2", "-pix_fmt", "yuv420p", path.join(tmp, "clip.mp4")], { stdio: "ignore" });
     execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", path.join(tmp, "voice.mp3")], { stdio: "ignore" });
@@ -218,7 +217,6 @@ describe("integration API v1", () => {
     await app.close();
 
     const fresh = path.join(tmp, "fresh");
-    execSync("npx prisma db push", { cwd: BACKEND, env: { ...process.env, DATA_DIR: fresh }, stdio: "ignore" });
     const { app: app2 } = await makeApp(fresh);
     const summary = await api(app2, "POST", "/api/import/folder", { folder: exp.folder }, null);
     expect(summary.warnings.filter((w: string) => /not found/.test(w))).toEqual([]);
