@@ -13,11 +13,12 @@
 │ routes/core.ts   projects, spaces, assets (multipart), references, master script, storyboard, scenes,           │
 │                  prompt library, workflow save/load, versions                                                   │
 │ routes/ops.ts    providers, consistency check, runs/jobs, outputs, Markdown export/import, assistant           │
+│ routes/integration.ts  token-protected /api/v1 for MarketingOS (composite create, runs, webhooks, files)        │
 │ services/engine.ts      graph → execution plan → queued jobs (retry, cancel, logs, outputs)                    │
 │ services/markdown.ts    write export folder / apply parsed import to the DB                                    │
 │ services/versions.ts    snapshots, restore, compare                                                            │
 │ services/assistant.ts   LLM drafting (returns drafts; UI applies them)                                         │
-│ services/ffmpeg.ts      Final Video concatenation                                                              │
+│ services/ffmpeg.ts      Final Video: clip normalization, voice-over mux, concat, SRT, burn-in                  │
 └───────────────┬───────────────────────────────────────────────────────────────┬────────────────────────────────┘
                 │                                                               │
 ┌───────────────▼────────────── shared (pure TypeScript, no I/O) ─┐   ┌─────────▼──────── providers ──────────────┐
@@ -87,13 +88,14 @@ Adapters receive the final prompt plus structured inputs (aspect ratio, count, r
    (broken edges, cycles, unknown types) block the run with HTTP 422 and the report.
 2. **Plan** — `buildExecutionPlan` (Kahn topological sort, ties broken by canvas position). With `targets`, only those nodes and their ancestors.
 3. **Queue** — a run row and one PENDING job per planned node; runs are processed one at a time.
-4. **Execute** — nodes in order. A node whose upstream failed/was cancelled, or whose upstream Condition is false, is CANCELLED with the reason.
+4. **Execute** — level by level; nodes of one dependency level run in parallel (`MAX_PARALLEL_JOBS`), provider calls are throttled per provider (`PROVIDER_MAX_CONCURRENCY`). A node whose upstream failed/was cancelled, or whose upstream Condition is false, is CANCELLED with the reason.
    Generator nodes that already have outputs are reused unless the run mode is `all` or the node is a target.
 5. **Retry** — up to `JOB_MAX_ATTEMPTS` for retryable errors (HTTP 429/5xx, network). "Provider not configured" is never retried.
 6. **Cancel** — aborts the provider request/polling via `AbortSignal`; pending jobs become CANCELLED.
 7. **Log & track** — per-job logs in the Job row and `data/logs/<runId>.log`; outputs saved as files + Output rows;
    scene `imageStatus/videoStatus/voiceStatus` updated.
-8. **Recover** — on server start, jobs left RUNNING/PENDING are marked FAILED ("Interrupted by server restart").
+8. **Notify** — `run.finished` webhook (signed with `WEBHOOK_SECRET`) to `WEBHOOK_URL` and the run's `webhookUrl`.
+9. **Recover** — on server start, jobs left RUNNING/PENDING are marked FAILED ("Interrupted by server restart").
 
 Statuses: `PENDING`, `RUNNING`, `SUCCESS`, `FAILED`, `CANCELLED`.
 

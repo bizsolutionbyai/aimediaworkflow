@@ -272,7 +272,7 @@ export interface EntityVersion {
   createdAt: ISODate;
 }
 
-export type ProviderKind = "image" | "video" | "voice" | "llm";
+export type ProviderKind = "image" | "video" | "voice" | "lipsync" | "llm";
 
 /** Public provider metadata. Never contains secrets. */
 export interface ProviderInfo {

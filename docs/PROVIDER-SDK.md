@@ -8,7 +8,7 @@ The workflow engine and the UI only use these interfaces and the registry — no
 ```ts
 interface ProviderBase {
   id: string;                    // stable id used in workflows and Markdown, e.g. "openai-image"
-  kind: "image" | "video" | "voice" | "llm";
+  kind: "image" | "video" | "voice" | "lipsync" | "llm";
   label: string;
   envKeys: string[];             // configured when the first non-empty one is set, e.g. ["GOOGLE_API_KEY", "GEMINI_API_KEY"]
   models: string[];              // suggestions shown in the UI (free text is allowed)
@@ -20,6 +20,7 @@ interface ProviderBase {
 interface ImageProvider extends ProviderBase { kind: "image"; generateImage(input: ImageInput, ctx: ProviderContext): Promise<MediaResult[]> }
 interface VideoProvider extends ProviderBase { kind: "video"; generateVideo(input: VideoInput, ctx: ProviderContext): Promise<MediaResult[]> }
 interface VoiceProvider extends ProviderBase { kind: "voice"; generateVoice(input: VoiceInput, ctx: ProviderContext): Promise<MediaResult[]> }
+interface LipSyncProvider extends ProviderBase { kind: "lipsync"; lipSync(input: LipSyncInput, ctx: ProviderContext): Promise<MediaResult[]> }
 interface LlmProvider   extends ProviderBase { kind: "llm";   complete(input: LlmInput, ctx: ProviderContext): Promise<string> }
 ```
 
@@ -29,6 +30,7 @@ Inputs (built by the engine from the prompt layers):
 ImageInput { prompt, negativePrompt?, aspectRatio, count, model?, referenceImages: MediaFile[], inputImage?: MediaFile }
 VideoInput { prompt, aspectRatio, duration, model?, inputImage?: MediaFile }
 VoiceInput { text, instructions, voice?, model? }
+LipSyncInput { video: MediaFile, audio: MediaFile, model? }
 LlmInput   { system, prompt, maxTokens?, model? }
 MediaFile  { data: Uint8Array, mimeType, filename }
 MediaResult { data: Uint8Array, mimeType, ext, model }    // the engine writes the file and the Output row
@@ -78,7 +80,8 @@ export const acmeImage: ImageProvider = {
 
 2. Register it in `providers/src/registry.ts` (`BUILTIN_PROVIDERS`) and export it from `providers/src/index.ts`.
 3. Add `ACME_API_KEY=` to `.env.example`.
-4. Add a test in `providers/test/` with a stubbed `fetch` that checks the request body/headers and the parsed result.
+4. Try it live: `npm run smoke -- acme-image`.
+5. Add a test in `providers/test/` with a stubbed `fetch` that checks the request body/headers and the parsed result.
 
 The UI discovers the new provider from `GET /api/providers` automatically (provider dropdowns, Settings, consistency checker).
 
@@ -93,6 +96,7 @@ The UI discovers the new provider from `GET /api/providers` automatically (provi
 | `google-veo` | video | `models/{model}:predictLongRunning`, poll the operation, download the sample URI |
 | `openai-tts` | voice | `POST /v1/audio/speech` (mp3, `instructions` for gpt-4o-mini-tts) |
 | `elevenlabs` | voice | `POST /v1/text-to-speech/{voice_id}` |
+| `replicate-lipsync` | lipsync | Replicate `POST /v1/files` (upload), `POST /v1/models/{owner}/{name}/predictions` (or `/v1/predictions` with a version), poll, download |
 | `anthropic` | llm | `POST /v1/messages` |
 | `openai-llm` | llm | `POST /v1/chat/completions` |
 

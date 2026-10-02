@@ -49,24 +49,26 @@ In the Markdown export (`WORKFLOW.md → ## Workflow JSON`) scene nodes carry `"
 | ai | `imageEditor` | `provider, model, aspectRatio, count, promptOverride` | edits the upstream selected image |
 | ai | `videoGenerator` | `provider, model, aspectRatio, duration, promptOverride` | needs an upstream image (generator output or image reference) |
 | ai | `voiceGenerator` | `provider, model, voice, promptOverride` | speaks the scene dialogue; voice prompt = delivery instructions |
-| ai | `lipSync` | `provider` | no adapter yet → fails with "Provider not configured" |
+| ai | `lipSync` | `provider, model` | lip-syncs the upstream video to the upstream voice/audio (Replicate adapter) |
 | ai | `scriptGenerator` | `provider, brief` | LLM writes a new (versioned) master script |
 | ai | `storyboardGenerator` | – | pass-through in a run; the **Generate storyboard** action creates scenes |
 | ai | `promptGenerator` | `target` | composes the layered prompt for the upstream scene; appended to downstream prompts |
 | logic | `prompt` | `templateId`, `text` | renders the template with scene variables; appended to downstream prompts |
-| logic | `condition` | `check: "hasOutputs"` | if no upstream outputs, downstream nodes are skipped (CANCELLED) |
+| logic | `condition` | `check, value` | `hasOutputs`, `noOutputs`, `minOutputs` (N), `hasKind` (image/video/audio), `sceneHasDialogue`, `sceneDurationAtLeast` (N s). False → downstream nodes are skipped (CANCELLED) |
 | logic | `batch` | `count` | sets the output count of downstream generators |
-| logic | `loop` | `iterations` | pass-through (iteration not executed in this version) |
+| logic | `loop` | `iterations` (1–20) | generators directly downstream call their provider this many times (variations) |
 | logic | `merge` | – | collects upstream outputs ordered by canvas x position |
 | logic | `delay` | `seconds` | waits |
 | output | `imageOutput`, `videoOutput`, `audioOutput` | – | collect upstream outputs of that kind |
-| output | `finalVideo` | – | concatenates upstream videos with ffmpeg |
+| output | `finalVideo` | `includeAudio, audioMode ("replace"\|"mix"), subtitles, burnSubtitles` | normalizes each upstream clip, adds the scene's voice-over, concatenates with ffmpeg, writes `<output>.srt` from scene dialogue |
 | output | `export` | – | writes the Markdown export |
 
 Provider resolution for generators: `data.provider` if set, otherwise the upstream scene's `imageProvider` / `videoProvider` / `voiceProvider`.
 
 ## Execution
 
+- Parallelism: nodes on the same dependency level run concurrently (`MAX_PARALLEL_JOBS`, default 2); calls per provider are limited by `PROVIDER_MAX_CONCURRENCY` (default 1).
+- Webhook: a finished run is POSTed as `run.finished` to `WEBHOOK_URL` and/or the run's `webhookUrl` (see INTEGRATION-API.md).
 - Plan: topological order (Kahn), ties broken by `position.y`, then `position.x`, then id. A cycle is an error.
 - Partial run: `POST /api/spaces/:id/run { "targets": ["vid_01"] }` plans the targets and their ancestors.
 - Mode: `"missing"` (default) reuses existing outputs of non-target generators; `"all"` regenerates everything.

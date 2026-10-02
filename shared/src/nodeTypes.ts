@@ -15,7 +15,7 @@ export interface NodeTypeDef {
   /** Kinds this node accepts ("any" accepts everything). */
   inputs: PortKind[];
   /** Provider kind this node calls, if any. */
-  providerKind?: "image" | "video" | "voice" | "llm";
+  providerKind?: "image" | "video" | "voice" | "lipsync" | "llm";
   defaultData: Record<string, unknown>;
 }
 
@@ -37,16 +37,16 @@ export const NODE_TYPES: NodeTypeDef[] = [
   { type: "imageEditor", label: "Image Editor", category: "ai", description: "Edits an upstream image with a prompt.", outputs: ["image"], inputs: ["image", "prompt", "scene", "reference"], providerKind: "image", defaultData: { provider: "", model: "", aspectRatio: "9:16", count: 1, promptOverride: "" } },
   { type: "videoGenerator", label: "Video Generator", category: "ai", description: "Generates a video from an upstream image and the scene's video prompt.", outputs: ["video"], inputs: ["image", "scene", "prompt", "reference"], providerKind: "video", defaultData: { provider: "", model: "", aspectRatio: "9:16", duration: 8, promptOverride: "" } },
   { type: "voiceGenerator", label: "Voice Generator", category: "ai", description: "Generates voice-over audio from the scene's dialogue.", outputs: ["audio"], inputs: ["scene", "reference", "prompt", "script"], providerKind: "voice", defaultData: { provider: "", model: "", voice: "", promptOverride: "" } },
-  { type: "lipSync", label: "Lip Sync", category: "ai", description: "Lip-syncs a video to audio (no adapter shipped yet).", outputs: ["video"], inputs: ["video", "audio"], providerKind: "video", defaultData: { provider: "" } },
+  { type: "lipSync", label: "Lip Sync", category: "ai", description: "Lip-syncs an upstream video to upstream voice audio.", outputs: ["video"], inputs: ["video", "audio", "scene"], providerKind: "lipsync", defaultData: { provider: "", model: "" } },
   { type: "scriptGenerator", label: "Script Generator", category: "ai", description: "Uses the AI assistant LLM to draft a master script.", outputs: ["script"], inputs: ["reference", "script"], providerKind: "llm", defaultData: { provider: "", brief: "" } },
   { type: "storyboardGenerator", label: "Storyboard Generator", category: "ai", description: "Splits the master script into scenes (deterministic parser).", outputs: ["scene"], inputs: ["script"], defaultData: {} },
   { type: "promptGenerator", label: "Prompt Generator", category: "ai", description: "Composes layered prompts for the upstream scene.", outputs: ["prompt"], inputs: ["scene", "reference", "prompt"], defaultData: { target: "image" } },
 
   // LOGIC
   { type: "prompt", label: "Prompt", category: "logic", description: "A prompt template from the library, or inline text.", outputs: ["prompt"], inputs: ["any"], defaultData: { templateId: "", text: "" } },
-  { type: "condition", label: "Condition", category: "logic", description: "Continues only if upstream nodes produced outputs.", outputs: ["any"], inputs: ["any"], defaultData: { check: "hasOutputs" } },
+  { type: "condition", label: "Condition", category: "logic", description: "Continues only if the check passes; otherwise downstream nodes are skipped.", outputs: ["any"], inputs: ["any"], defaultData: { check: "hasOutputs", value: "" } },
   { type: "batch", label: "Batch", category: "logic", description: "Sets the output count for downstream generators.", outputs: ["any"], inputs: ["any"], defaultData: { count: 4 } },
-  { type: "loop", label: "Loop", category: "logic", description: "Pass-through grouping node (iteration not executed in MVP).", outputs: ["any"], inputs: ["any"], defaultData: { iterations: 1 } },
+  { type: "loop", label: "Loop", category: "logic", description: "Repeats downstream generator calls N times (variations).", outputs: ["any"], inputs: ["any"], defaultData: { iterations: 2 } },
   { type: "merge", label: "Merge", category: "logic", description: "Collects upstream outputs in order.", outputs: ["image", "video", "audio"], inputs: ["any"], defaultData: {} },
   { type: "delay", label: "Delay", category: "logic", description: "Waits before continuing.", outputs: ["any"], inputs: ["any"], defaultData: { seconds: 1 } },
 
@@ -54,7 +54,7 @@ export const NODE_TYPES: NodeTypeDef[] = [
   { type: "imageOutput", label: "Image Output", category: "output", description: "Collects images.", outputs: [], inputs: ["image", "any"], defaultData: {} },
   { type: "videoOutput", label: "Video Output", category: "output", description: "Collects videos.", outputs: [], inputs: ["video", "any"], defaultData: {} },
   { type: "audioOutput", label: "Audio Output", category: "output", description: "Collects audio.", outputs: [], inputs: ["audio", "any"], defaultData: {} },
-  { type: "finalVideo", label: "Final Video", category: "output", description: "Concatenates upstream videos with ffmpeg.", outputs: ["video"], inputs: ["video", "audio", "any"], defaultData: {} },
+  { type: "finalVideo", label: "Final Video", category: "output", description: "Joins upstream videos with ffmpeg, adds scene voice-over and subtitles.", outputs: ["video"], inputs: ["video", "audio", "any"], defaultData: { includeAudio: true, audioMode: "replace", subtitles: true, burnSubtitles: false } },
   { type: "export", label: "Export", category: "output", description: "Exports the space as Markdown.", outputs: [], inputs: ["any"], defaultData: {} },
 ];
 

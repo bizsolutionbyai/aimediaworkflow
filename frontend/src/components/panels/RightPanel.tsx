@@ -162,8 +162,35 @@ function NodeEditor({ id }: { id: string }) {
       {node.type === "promptGenerator" && <Field label="Target"><Select value={String(d.target ?? "image")} onChange={(e) => set("target", e.target.value)} options={["image", "video", "voice"].map((v) => ({ value: v, label: v }))} /></Field>}
       {node.type === "batch" && <Field label="Count for downstream generators"><Input type="number" min={1} max={10} value={Number(d.count ?? 4)} onChange={(e) => set("count", Number(e.target.value))} /></Field>}
       {node.type === "delay" && <Field label="Seconds"><Input type="number" min={0} value={Number(d.seconds ?? 1)} onChange={(e) => set("seconds", Number(e.target.value))} /></Field>}
-      {node.type === "loop" && <Field label="Iterations" hint="Loop is a pass-through in this version."><Input type="number" min={1} value={Number(d.iterations ?? 1)} onChange={(e) => set("iterations", Number(e.target.value))} /></Field>}
-      {node.type === "condition" && <div className="text-zinc-400">Continues only when upstream nodes produced outputs; otherwise downstream nodes are skipped.</div>}
+      {node.type === "loop" && <Field label="Iterations" hint="Each downstream generator calls its provider this many times (variations)."><Input type="number" min={1} max={20} value={Number(d.iterations ?? 2)} onChange={(e) => set("iterations", Number(e.target.value))} /></Field>}
+      {node.type === "condition" && (
+        <div className="grid grid-cols-[1fr_90px] gap-2">
+          <Field label="Check" hint="If false, downstream nodes are skipped.">
+            <Select
+              value={String(d.check ?? "hasOutputs")}
+              onChange={(e) => set("check", e.target.value)}
+              options={[
+                { value: "hasOutputs", label: "Upstream has outputs" },
+                { value: "noOutputs", label: "Upstream has no outputs" },
+                { value: "minOutputs", label: "At least N outputs" },
+                { value: "hasKind", label: "Has output of kind" },
+                { value: "sceneHasDialogue", label: "Scene has dialogue" },
+                { value: "sceneDurationAtLeast", label: "Scene duration ≥ N s" },
+              ]}
+            />
+          </Field>
+          <Field label="Value"><Input value={String(d.value ?? "")} onChange={(e) => set("value", e.target.value)} placeholder={d.check === "hasKind" ? "image" : "N"} /></Field>
+        </div>
+      )}
+      {node.type === "finalVideo" && (
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-zinc-300"><input type="checkbox" checked={d.includeAudio !== false} onChange={(e) => set("includeAudio", e.target.checked)} /> Add each scene's voice-over</label>
+          <Field label="Voice vs. clip audio"><Select value={String(d.audioMode ?? "replace")} onChange={(e) => set("audioMode", e.target.value)} options={[{ value: "replace", label: "Replace clip audio with voice" }, { value: "mix", label: "Mix voice with clip audio" }]} /></Field>
+          <label className="flex items-center gap-2 text-zinc-300"><input type="checkbox" checked={d.subtitles !== false} onChange={(e) => set("subtitles", e.target.checked)} /> Write .srt subtitles from dialogue</label>
+          <label className="flex items-center gap-2 text-zinc-300"><input type="checkbox" checked={!!d.burnSubtitles} onChange={(e) => set("burnSubtitles", e.target.checked)} /> Burn subtitles into the video (needs ffmpeg with libass)</label>
+          <Button variant="primary" className="w-full" onClick={() => void runWorkflow([id])}><Play size={14} /> Build final video</Button>
+        </div>
+      )}
       {node.type === "scriptGenerator" && (
         <>
           <Field label="Brief"><Textarea rows={4} value={String(d.brief ?? "")} onChange={(e) => set("brief", e.target.value)} placeholder="Create a 60 second TikTok product review." /></Field>
@@ -177,7 +204,7 @@ function NodeEditor({ id }: { id: string }) {
           <Field label="Provider" hint={resolvedInfo ? (resolvedInfo.configured ? `Using ${resolvedInfo.label}` : `${resolvedInfo.label}: provider not configured (set ${resolvedInfo.envKey} in .env)`) : "Provider not configured"}>
             <Select value={String(d.provider ?? "")} onChange={(e) => set("provider", e.target.value)} options={providerOptions} />
           </Field>
-          {node.type !== "lipSync" && (
+          {(
             <Field label="Model" hint={resolvedInfo ? `Default: ${resolvedInfo.defaultModel}` : undefined}>
               <Input value={String(d.model ?? "")} onChange={(e) => set("model", e.target.value)} placeholder={resolvedInfo?.defaultModel} list={`models-${id}`} />
               <datalist id={`models-${id}`}>{resolvedInfo?.models.map((m) => <option key={m} value={m} />)}</datalist>

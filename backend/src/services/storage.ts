@@ -1,6 +1,9 @@
 // File storage under the data directory. Stored paths are relative to dataDir with forward slashes.
 import fs from "node:fs";
 import path from "node:path";
+import { randomId, type Asset } from "@amw/shared";
+import type { Db } from "../db";
+import { toAsset } from "../repo";
 
 export function toRel(dataDir: string, abs: string): string {
   return path.relative(dataDir, abs).split(path.sep).join("/");
@@ -58,4 +61,16 @@ export function mirror(dataDir: string, rel: string, content: string): void {
   } catch {
     /* mirrors are convenience copies; the database is the source of truth */
   }
+}
+
+/** Stores an uploaded/downloaded file under data/assets/<projectId>/ and creates its Asset row. */
+export async function recordAsset(
+  db: Db,
+  dataDir: string,
+  a: { projectId: string; spaceId: string | null; filename: string; mimeType: string; kind: Asset["kind"]; bytes: Uint8Array },
+): Promise<Asset> {
+  const id = randomId("asset");
+  const rel = writeDataFile(dataDir, `assets/${a.projectId}/${id}${safeExt(a.filename)}`, a.bytes);
+  const row = await db.asset.create({ data: { id, projectId: a.projectId, spaceId: a.spaceId, kind: a.kind, filename: a.filename, path: rel, mimeType: a.mimeType, size: a.bytes.length } });
+  return toAsset(row);
 }

@@ -44,7 +44,7 @@ export function findUpstreamScene(doc: WorkflowDoc, nodeId: string): WorkflowNod
 }
 
 /** Default provider id per kind (DEFAULT_<KIND>_PROVIDER or the first configured provider). */
-export type ProviderDefaults = Partial<Record<"image" | "video" | "voice" | "llm", string>>;
+export type ProviderDefaults = Partial<Record<"image" | "video" | "voice" | "lipsync" | "llm", string>>;
 
 /** Provider for a generator node: explicit node setting, else the upstream scene's provider field, else the default. */
 export function resolveNodeProvider(doc: WorkflowDoc, node: WorkflowNode, scenes: Scene[], defaults: ProviderDefaults = {}): string {

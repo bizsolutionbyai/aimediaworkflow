@@ -41,7 +41,7 @@ import {
   toSpace,
 } from "../repo";
 import { applyStoryboard, cleanSceneInput, createScene, removeSceneNodes, updateScene } from "../services/scenes";
-import { kindFromMime, mimeFromName, mirror, resolveData, safeExt, writeDataFile } from "../services/storage";
+import { kindFromMime, mimeFromName, mirror, recordAsset, resolveData } from "../services/storage";
 import { compareVersions, listVersions, recordVersion, restoreVersion, snapshotNow } from "../services/versions";
 
 type P<T extends string> = { Params: Record<T, string> };
@@ -149,11 +149,8 @@ export function coreRoutes(app: FastifyInstance, ctx: AppContext) {
         continue;
       }
       const buf = await part.toBuffer();
-      const id = randomId("asset");
       const mime = part.mimetype && part.mimetype !== "application/octet-stream" ? part.mimetype : mimeFromName(part.filename);
-      const rel = writeDataFile(cfg.dataDir, `assets/${project.id}/${id}${safeExt(part.filename)}`, buf);
-      const row = await db.asset.create({ data: { id, projectId: project.id, spaceId, kind: kindFromMime(mime), filename: part.filename, path: rel, mimeType: mime, size: buf.length } });
-      created.push(toAsset(row));
+      created.push(await recordAsset(db, cfg.dataDir, { projectId: project.id, spaceId, filename: part.filename, mimeType: mime, kind: kindFromMime(mime), bytes: buf }));
     }
     if (referenceId && created.length) {
       const ref = await db.reference.findUnique({ where: { id: referenceId } });

@@ -9,6 +9,7 @@ import { ProviderError, ProviderNotConfiguredError, ProviderRegistry } from "@am
 import { loadConfig, type AppConfig } from "./config";
 import { createDb, type Db } from "./db";
 import { coreRoutes, seedPrompts } from "./routes/core";
+import { integrationRoutes } from "./routes/integration";
 import { opsRoutes } from "./routes/ops";
 import { Assistant } from "./services/assistant";
 import { RunBlockedError, WorkflowEngine } from "./services/engine";
@@ -19,6 +20,7 @@ export interface AppContext {
   registry: ProviderRegistry;
   engine: WorkflowEngine;
   assistant: Assistant;
+  fetch: typeof fetch;
 }
 
 export interface BuildOptions {
@@ -34,7 +36,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   const fetchImpl = opts.fetch ?? fetch;
   const assistant = new Assistant(db, registry, cfg, fetchImpl);
   const engine = new WorkflowEngine(db, registry, cfg, assistant, fetchImpl);
-  const ctx: AppContext = { cfg, db, registry, engine, assistant };
+  const ctx: AppContext = { cfg, db, registry, engine, assistant, fetch: fetchImpl };
 
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 50 * 1024 * 1024 });
   await app.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } });
@@ -65,6 +67,7 @@ export async function buildApp(opts: BuildOptions = {}) {
 
   coreRoutes(app, ctx);
   opsRoutes(app, ctx);
+  integrationRoutes(app, ctx);
 
   await seedPrompts(ctx);
   await engine.recover();

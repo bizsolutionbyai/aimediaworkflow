@@ -1,6 +1,7 @@
 // Workflow execution engine: graph → execution plan → queued jobs, with retry, cancellation,
 // logging and output tracking. Execution state lives here and in the Job/WorkflowRun tables,
 // never in the canvas UI state.
+import { createHmac } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -28,7 +29,7 @@ import type { AppConfig } from "../config";
 import type { Db } from "../db";
 import { BadRequestError, loadBundle, toJob, toOutput, toRun } from "../repo";
 import type { Assistant } from "./assistant";
-import { concatVideos, ffmpegAvailable } from "./ffmpeg";
+import { buildSrt, burnSubtitles, concatVideos, ffmpegAvailable, muxClip, probe } from "./ffmpeg";
 import { exportSpace } from "./markdown";
 import { mimeFromName, resolveData, writeDataFile } from "./storage";
 
@@ -44,6 +45,8 @@ export interface RunOptions {
   targets?: string[];
   /** "missing": reuse existing outputs of generator nodes that are not targets. "all": regenerate everything. */
   mode?: "missing" | "all";
+  /** POSTed a `run.finished` event when the run ends (in addition to WEBHOOK_URL). */
+  webhookUrl?: string;
 }
 
 interface NodeResult {
@@ -53,6 +56,8 @@ interface NodeResult {
   count?: number;
   prompt?: string;
   text?: string;
+  /** Set by Loop: downstream generators repeat their provider call this many times. */
+  repeat?: number;
 }
 
 const GRAPH_CODES = new Set(["broken_edge", "cycle", "unknown_type", "duplicate_node", "self_loop"]);
@@ -80,7 +85,31 @@ class JobLogger {
   }
 }
 
+/** Limits concurrent calls per provider (PROVIDER_MAX_CONCURRENCY) so parallel jobs respect rate limits. */
+class Semaphore {
+  private active = 0;
+  private waiting: (() => void)[] = [];
+  constructor(private readonly limit: number) {}
+  async use<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) await new Promise<void>((r) => this.waiting.push(r));
+    this.active++;
+    try {
+      return await fn();
+    } finally {
+      this.active--;
+      this.waiting.shift()?.();
+    }
+  }
+}
+
 export class WorkflowEngine {
+  private limits = new Map<string, Semaphore>();
+
+  private withProvider<T>(providerId: string, fn: () => Promise<T>): Promise<T> {
+    if (!this.limits.has(providerId)) this.limits.set(providerId, new Semaphore(Math.max(1, Number(this.cfg.env.PROVIDER_MAX_CONCURRENCY) || 1)));
+    return this.limits.get(providerId)!.use(fn);
+  }
+
   private queue: string[] = [];
   private controllers = new Map<string, AbortController>();
   private processing = false;
@@ -189,19 +218,19 @@ export class WorkflowEngine {
     const results = new Map<string, NodeResult>();
     const logFile = path.join(this.cfg.dataDir, "logs", `${runId}.log`);
 
-    for (const nodeId of order) {
+    const runOne = async (nodeId: string): Promise<void> => {
       const job = await this.db.job.findFirstOrThrow({ where: { runId, nodeId } });
       if (controller.signal.aborted || job.status === "CANCELLED") {
         await this.finishJob(job.id, "CANCELLED", "Cancelled by user");
         results.set(nodeId, { status: "CANCELLED", outputs: [] });
-        continue;
+        return;
       }
       const node = doc.nodes.find((n) => n.id === nodeId);
       const logger = new JobLogger(this.db, job.id, logFile);
       if (!node) {
         await this.finishJob(job.id, "FAILED", `Node ${nodeId} no longer exists`);
         results.set(nodeId, { status: "FAILED", outputs: [] });
-        continue;
+        return;
       }
       const ups = upstreamIds(doc, nodeId).filter((u) => planned.has(u));
       const bad = ups.find((u) => results.get(u)?.status !== "SUCCESS");
@@ -210,7 +239,7 @@ export class WorkflowEngine {
         const reason = bad ? `Skipped: upstream ${bad} ${results.get(bad)?.status ?? "did not run"}` : `Skipped: condition ${blocked} is false`;
         await this.finishJob(job.id, "CANCELLED", reason);
         results.set(nodeId, { status: "CANCELLED", outputs: [] });
-        continue;
+        return;
       }
 
       // Reuse outputs of generators that already produced something (unless forced).
@@ -221,7 +250,7 @@ export class WorkflowEngine {
           await logger.flush();
           await this.db.job.update({ where: { id: job.id }, data: { status: "SUCCESS", startedAt: new Date(), finishedAt: new Date(), outputIds: JSON.stringify(existing.map((o) => o.id)) } });
           results.set(nodeId, { status: "SUCCESS", outputs: existing });
-          continue;
+          return;
         }
       }
 
@@ -256,12 +285,56 @@ export class WorkflowEngine {
           break;
         }
       }
+    };
+
+    // Nodes of the same dependency level are independent and run in parallel (bounded).
+    const level = new Map<string, number>();
+    for (const id of order) {
+      const ups = upstreamIds(doc, id).filter((u) => planned.has(u));
+      level.set(id, ups.length ? Math.max(...ups.map((u) => level.get(u) ?? 0)) + 1 : 0);
+    }
+    const maxParallel = Math.max(1, Number(this.cfg.env.MAX_PARALLEL_JOBS) || 2);
+    const depth = Math.max(0, ...level.values());
+    for (let d = 0; d <= depth; d++) {
+      const queue = order.filter((id) => level.get(id) === d);
+      const workers = Array.from({ length: Math.min(maxParallel, queue.length) }, async () => {
+        while (queue.length) await runOne(queue.shift()!);
+      });
+      await Promise.all(workers);
     }
 
     const statuses = [...results.values()].map((r) => r.status);
     const final: JobStatus = controller.signal.aborted ? "CANCELLED" : statuses.includes("FAILED") ? "FAILED" : "SUCCESS";
     const failed = (await this.db.job.findMany({ where: { runId, status: "FAILED" } })).map((j) => `${j.nodeId}: ${j.error}`);
     await this.db.workflowRun.update({ where: { id: runId }, data: { status: final, finishedAt: new Date(), error: failed.length ? failed.join("; ") : null } });
+    await this.notify(runId, opts.webhookUrl);
+  }
+
+  /** Sends `run.finished` to WEBHOOK_URL and/or the run's webhookUrl, signed with WEBHOOK_SECRET (HMAC-SHA256). */
+  private async notify(runId: string, extraUrl?: string) {
+    const urls = [...new Set([this.cfg.env.WEBHOOK_URL?.trim(), extraUrl?.trim()].filter((u): u is string => !!u))];
+    if (!urls.length) return;
+    const run = toRun(await this.db.workflowRun.findUniqueOrThrow({ where: { id: runId } }));
+    const jobs = await this.jobsForRun(runId);
+    const outputIds = jobs.flatMap((j) => j.outputIds);
+    const outputs = (await this.db.output.findMany({ where: { id: { in: outputIds } } })).map(toOutput);
+    const body = JSON.stringify({
+      event: "run.finished",
+      run,
+      jobs: jobs.map((j) => ({ nodeId: j.nodeId, nodeType: j.nodeType, status: j.status, error: j.error, outputIds: j.outputIds })),
+      outputs: outputs.map((o) => ({ ...o, url: `/files/${o.path}` })),
+    });
+    const headers: Record<string, string> = { "content-type": "application/json", "x-amw-event": "run.finished" };
+    const secret = this.cfg.env.WEBHOOK_SECRET?.trim();
+    if (secret) headers["x-amw-signature"] = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+    for (const url of urls) {
+      try {
+        const res = await this.fetchImpl(url, { method: "POST", headers, body, signal: AbortSignal.timeout(15000) });
+        fs.appendFileSync(path.join(this.cfg.dataDir, "logs", `${runId}.log`), `webhook ${url}: HTTP ${res.status}\n`);
+      } catch (e) {
+        fs.appendFileSync(path.join(this.cfg.dataDir, "logs", `${runId}.log`), `webhook ${url} failed: ${(e as Error).message}\n`);
+      }
+    }
   }
 
   private async finishJob(id: string, status: JobStatus, error: string | null) {
@@ -315,6 +388,15 @@ export class WorkflowEngine {
     const upOutputs = (kind?: OutputKind) => ups.flatMap((u) => preferred(u.result.outputs)).filter((o) => !kind || o.kind === kind);
     const upPrompts = ups.map((u) => u.result.prompt).filter((p): p is string => !!p);
     const batchCount = ups.map((u) => u.result.count).find((n) => !!n);
+    const repeat = ups.map((u) => u.result.repeat).find((n) => !!n) ?? 1;
+    const times = async (fn: () => Promise<MediaResult[]>): Promise<MediaResult[]> => {
+      const all: MediaResult[] = [];
+      for (let i = 0; i < repeat; i++) {
+        if (repeat > 1) log(`Loop iteration ${i + 1}/${repeat}`);
+        all.push(...(await fn()));
+      }
+      return all;
+    };
     const sceneNode = findUpstreamScene(doc, node.id);
     const scene = sceneNode ? bundle.scenes.find((s) => s.id === sceneNode.data.sceneId) : undefined;
     const d = node.data;
@@ -377,9 +459,11 @@ export class WorkflowEngine {
       }
       case "batch":
         return { status: "SUCCESS", outputs: upOutputs(), count: Math.max(1, Number(d.count) || 1) };
-      case "loop":
-        log("Loop is a pass-through node in this version");
-        return { status: "SUCCESS", outputs: upOutputs() };
+      case "loop": {
+        const n = Math.max(1, Math.min(20, Number(d.iterations) || 1));
+        log(`Downstream generators will run ${n} iteration(s)`);
+        return { status: "SUCCESS", outputs: upOutputs(), repeat: n };
+      }
       case "delay": {
         const s = Math.max(0, Math.min(3600, Number(d.seconds) || 0));
         log(`Waiting ${s}s`);
@@ -388,8 +472,16 @@ export class WorkflowEngine {
       }
       case "condition": {
         const outs = upOutputs();
-        const ok = outs.length > 0;
-        log(`Condition hasOutputs: ${ok}`);
+        const check = String(d.check || "hasOutputs");
+        const value = String(d.value ?? "");
+        let ok: boolean;
+        if (check === "noOutputs") ok = outs.length === 0;
+        else if (check === "minOutputs") ok = outs.length >= (Number(value) || 1);
+        else if (check === "hasKind") ok = outs.some((o) => o.kind === value);
+        else if (check === "sceneHasDialogue") ok = !!scene?.dialogue.trim();
+        else if (check === "sceneDurationAtLeast") ok = (scene?.duration ?? 0) >= (Number(value) || 0);
+        else ok = outs.length > 0;
+        log(`Condition ${check}${value ? `(${value})` : ""}: ${ok}`);
         return { status: "SUCCESS", outputs: outs, blocked: !ok };
       }
       case "merge": {
@@ -445,10 +537,10 @@ export class WorkflowEngine {
         }
         const count = Math.max(1, Math.min(10, batchCount || Number(d.count) || 1));
         log(`Provider ${provider.id}, count ${count}, reference images ${refs.length}`);
-        const media = await provider.generateImage(
+        const media = await times(() => this.withProvider(provider.id, () => provider.generateImage(
           { prompt, negativePrompt: negative, aspectRatio: String(d.aspectRatio || bundle.space.aspectRatio || "9:16"), count, model: String(d.model ?? ""), referenceImages: refs, inputImage },
           this.providerCtx(signal, log),
-        );
+        )));
         const outs = await this.saveOutputs(bundle.space.id, node, c.jobId, scene?.id ?? null, "image", provider.id, prompt, media);
         log(`Saved ${outs.length} image(s)`);
         return { status: "SUCCESS", outputs: outs };
@@ -468,10 +560,10 @@ export class WorkflowEngine {
         }
         prompt ||= upPrompts.join("\n\n");
         if (!prompt) throw new Error("No prompt: connect a Scene or Prompt node, or set a prompt override");
-        const media = await provider.generateVideo(
+        const media = await times(() => this.withProvider(provider.id, () => provider.generateVideo(
           { prompt, aspectRatio: String(d.aspectRatio || bundle.space.aspectRatio || "9:16"), duration: Number(d.duration) || scene?.duration || 8, model: String(d.model ?? ""), inputImage },
           this.providerCtx(signal, log),
-        );
+        )));
         const outs = await this.saveOutputs(bundle.space.id, node, c.jobId, scene?.id ?? null, "video", provider.id, prompt, media);
         log(`Saved ${outs.length} video(s)`);
         return { status: "SUCCESS", outputs: outs };
@@ -491,23 +583,87 @@ export class WorkflowEngine {
           voice ||= String(voiceRef?.settings.voiceName ?? "");
         }
         if (!text.trim()) throw new Error("Nothing to speak: the scene has no dialogue");
-        const media = await provider.generateVoice({ text, instructions, voice, model: String(d.model ?? "") }, this.providerCtx(signal, log));
+        const media = await times(() => this.withProvider(provider.id, () => provider.generateVoice({ text, instructions, voice, model: String(d.model ?? "") }, this.providerCtx(signal, log))));
         const outs = await this.saveOutputs(bundle.space.id, node, c.jobId, scene?.id ?? null, "audio", provider.id, `${instructions}\n\n${text}`, media);
         log(`Saved ${outs.length} audio file(s)`);
         return { status: "SUCCESS", outputs: outs };
       }
-      case "lipSync":
-        throw new ProviderNotConfiguredError("lip-sync", "LIPSYNC provider (no lip-sync adapter ships with this version)");
+      case "lipSync": {
+        const providerId = resolveNodeProvider(doc, node, bundle.scenes, this.registry.defaults());
+        const provider = this.registry.lipsync(providerId);
+        if (!provider) throw new ProviderNotConfiguredError(providerId || "lipsync", "REPLICATE_API_TOKEN");
+        const upAsset = (type: string) => {
+          const u = ups.find((x) => x.node.type === type);
+          const a = u && bundle.assets.find((x) => x.id === u.node.data.assetId);
+          return a ? this.readMedia(a.path, a.filename) : undefined;
+        };
+        const v = upOutputs("video")[0];
+        const a = upOutputs("audio")[0] ?? (scene ? bundle.outputs.find((o) => o.kind === "audio" && o.sceneId === scene.id && o.selected) : undefined);
+        const video = v ? this.readMedia(v.path) : upAsset("videoReference");
+        const audio = a ? this.readMedia(a.path) : upAsset("audioReference");
+        if (!video || !audio) throw new Error("Lip Sync needs an upstream video and an audio input (Voice Generator or Audio Reference)");
+        const media = await times(() => this.withProvider(provider.id, () => provider.lipSync({ video, audio, model: String(d.model ?? "") }, this.providerCtx(signal, log))));
+        const outs = await this.saveOutputs(bundle.space.id, node, c.jobId, scene?.id ?? v?.sceneId ?? null, "video", provider.id, "lip sync", media);
+        log(`Saved ${outs.length} lip-synced video(s)`);
+        return { status: "SUCCESS", outputs: outs };
+      }
       case "finalVideo": {
         const videos = upOutputs("video");
         if (!videos.length) throw new Error("No upstream videos to combine");
         if (!(await ffmpegAvailable(this.cfg.env))) throw new Error("ffmpeg not found: install ffmpeg and add it to PATH, or set FFMPEG_PATH in .env");
+        const includeAudio = d.includeAudio !== false;
+        const audioMode = d.audioMode === "mix" ? "mix" : "replace";
+        const upAudio = upOutputs("audio");
+        // Voice per scene: an upstream audio output for that scene, else the scene's selected voice output.
+        const voiceFor = (sceneId: string | null) => {
+          if (!sceneId || !includeAudio) return null;
+          const fromUp = upAudio.find((a) => a.sceneId === sceneId);
+          const any = fromUp ?? bundle.outputs.filter((o) => o.kind === "audio" && o.sceneId === sceneId).sort((a, b) => Number(b.selected) - Number(a.selected) || b.createdAt.localeCompare(a.createdAt))[0];
+          return any ?? null;
+        };
         const id = randomId("out");
-        const rel = `outputs/${bundle.space.id}/${node.id}/${id}.mp4`;
-        await concatVideos(this.cfg.env, videos.map((v) => resolveData(this.cfg.dataDir, v.path)), resolveData(this.cfg.dataDir, rel), signal, log);
-        await this.db.output.updateMany({ where: { spaceId: bundle.space.id, nodeId: node.id }, data: { selected: false } });
-        const row = await this.db.output.create({ data: { id, spaceId: bundle.space.id, sceneId: null, nodeId: node.id, jobId: c.jobId, kind: "video", path: rel, provider: "ffmpeg", prompt: `concat ${videos.map((v) => v.id).join(",")}`, selected: true } });
-        return { status: "SUCCESS", outputs: [toOutput(row)] };
+        const dir = `outputs/${bundle.space.id}/${node.id}`;
+        const tmp = resolveData(this.cfg.dataDir, `${dir}/tmp_${id}`);
+        fs.mkdirSync(tmp, { recursive: true });
+        try {
+          const clips: string[] = [];
+          const cues: { duration: number; text: string }[] = [];
+          for (const [i, v] of videos.entries()) {
+            const voice = voiceFor(v.sceneId);
+            const clip = path.join(tmp, `clip_${String(i).padStart(3, "0")}.mp4`);
+            log(`Clip ${i + 1}/${videos.length}: ${v.id}${voice ? ` + voice ${voice.id} (${audioMode})` : ""}`);
+            await muxClip(this.cfg.env, resolveData(this.cfg.dataDir, v.path), voice ? resolveData(this.cfg.dataDir, voice.path) : null, clip, audioMode, signal);
+            clips.push(clip);
+            const scene = bundle.scenes.find((s) => s.id === v.sceneId);
+            cues.push({ duration: (await probe(this.cfg.env, clip)).duration, text: scene?.dialogue ?? "" });
+          }
+          const rel = `${dir}/${id}.mp4`;
+          const concatTarget = d.burnSubtitles ? path.join(tmp, "joined.mp4") : resolveData(this.cfg.dataDir, rel);
+          await concatVideos(this.cfg.env, clips, concatTarget, signal, log);
+          const srt = buildSrt(cues);
+          if (srt && d.subtitles !== false) {
+            writeDataFile(this.cfg.dataDir, `${dir}/${id}.srt`, srt);
+            log(`Subtitles: ${dir}/${id}.srt`);
+          }
+          if (d.burnSubtitles) {
+            if (srt) {
+              const srtAbs = path.join(tmp, "subs.srt");
+              fs.writeFileSync(srtAbs, srt);
+              try {
+                await burnSubtitles(this.cfg.env, concatTarget, srtAbs, resolveData(this.cfg.dataDir, rel), signal);
+                log("Subtitles burned into the video");
+              } catch (e) {
+                log(`warning: ${(e as Error).message}; keeping video without burned subtitles`);
+                fs.copyFileSync(concatTarget, resolveData(this.cfg.dataDir, rel));
+              }
+            } else fs.copyFileSync(concatTarget, resolveData(this.cfg.dataDir, rel));
+          }
+          await this.db.output.updateMany({ where: { spaceId: bundle.space.id, nodeId: node.id }, data: { selected: false } });
+          const row = await this.db.output.create({ data: { id, spaceId: bundle.space.id, sceneId: null, nodeId: node.id, jobId: c.jobId, kind: "video", path: rel, provider: "ffmpeg", prompt: `concat ${videos.map((v) => v.id).join(",")}`, selected: true } });
+          return { status: "SUCCESS", outputs: [toOutput(row)] };
+        } finally {
+          fs.rmSync(tmp, { recursive: true, force: true });
+        }
       }
       default:
         throw new Error(`No executor for node type ${node.type}`);

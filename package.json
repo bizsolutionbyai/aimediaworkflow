@@ -16,7 +16,8 @@
     "build": "npm run build -w frontend",
     "start": "npm run setup && npm run build && npm run start -w backend",
     "test": "vitest run",
-    "typecheck": "tsc -p shared && tsc -p providers && tsc -p backend && tsc -p frontend"
+    "typecheck": "tsc -p shared && tsc -p providers && tsc -p backend && tsc -p frontend",
+    "smoke": "npm run smoke -w backend --"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

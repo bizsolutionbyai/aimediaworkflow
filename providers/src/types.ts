@@ -54,6 +54,12 @@ export interface VoiceInput {
   model?: string;
 }
 
+export interface LipSyncInput {
+  video: MediaFile;
+  audio: MediaFile;
+  model?: string;
+}
+
 export interface LlmInput {
   system: string;
   prompt: string;
@@ -88,12 +94,17 @@ export interface VoiceProvider extends ProviderBase {
   generateVoice(input: VoiceInput, ctx: ProviderContext): Promise<MediaResult[]>;
 }
 
+export interface LipSyncProvider extends ProviderBase {
+  kind: "lipsync";
+  lipSync(input: LipSyncInput, ctx: ProviderContext): Promise<MediaResult[]>;
+}
+
 export interface LlmProvider extends ProviderBase {
   kind: "llm";
   complete(input: LlmInput, ctx: ProviderContext): Promise<string>;
 }
 
-export type AnyProvider = ImageProvider | VideoProvider | VoiceProvider | LlmProvider;
+export type AnyProvider = ImageProvider | VideoProvider | VoiceProvider | LipSyncProvider | LlmProvider;
 
 export class ProviderNotConfiguredError extends Error {
   constructor(public readonly providerId: string, envKey: string) {

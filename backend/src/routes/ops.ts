@@ -6,7 +6,7 @@ import { checkConsistency, formatCheckReport } from "@amw/shared";
 import type { AppContext } from "../app";
 import { BadRequestError, NotFoundError, loadBundle, toOutput, toRun } from "../repo";
 import { ffmpegAvailable } from "../services/ffmpeg";
-import { exportSpace, importFiles, listExports, readMarkdownFolder } from "../services/markdown";
+import { exportSpace, folderMedia, importFiles, listExports, readMarkdownFolder } from "../services/markdown";
 import { applyStoryboard } from "../services/scenes";
 import { resolveData } from "../services/storage";
 
@@ -69,7 +69,8 @@ export function opsRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // ---------- Markdown export / import ----------
   app.post<P<"id">>("/api/spaces/:id/export", async (req) => {
-    const r = await exportSpace(db, req.params.id, cfg.exportDir, registry);
+    const includeMedia = !!((req.body ?? {}) as { includeMedia?: boolean }).includeMedia;
+    const r = await exportSpace(db, req.params.id, cfg.exportDir, registry, { includeMedia, dataDir: cfg.dataDir });
     return { ...r, dir: path.relative(cfg.rootDir, r.dir).split(path.sep).join("/") || r.dir, absoluteDir: r.dir };
   });
 
@@ -77,10 +78,16 @@ export function opsRoutes(app: FastifyInstance, ctx: AppContext) {
 
   /** Import from files uploaded by the browser (folder picker): { files: { "PROJECT.md": "...", "scenes/SCENE-01.md": "..." } }. */
   app.post("/api/import", async (req) => {
-    const b = (req.body ?? {}) as { files?: Record<string, string>; removeMissingScenes?: boolean };
+    const b = (req.body ?? {}) as { files?: Record<string, string>; media?: Record<string, string>; removeMissingScenes?: boolean };
     if (!b.files || typeof b.files !== "object") throw new BadRequestError("files map is required");
     const md = Object.fromEntries(Object.entries(b.files).filter(([p, c]) => p.toLowerCase().endsWith(".md") && typeof c === "string"));
-    return importFiles(db, md, { dataDir: cfg.dataDir, removeMissingScenes: !!b.removeMissingScenes });
+    // Optional media: { "assets/prj_x/asset_y.jpg": "<base64>" } (paths relative to data/, as in ASSETS.md)
+    const media = b.media ?? {};
+    return importFiles(db, md, {
+      dataDir: cfg.dataDir,
+      removeMissingScenes: !!b.removeMissingScenes,
+      media: (rel) => (typeof media[rel] === "string" ? new Uint8Array(Buffer.from(media[rel], "base64")) : null),
+    });
   });
 
   /** Import an export folder by name (inside EXPORT_DIR) or by absolute path on this machine. */
@@ -94,7 +101,7 @@ export function opsRoutes(app: FastifyInstance, ctx: AppContext) {
       dir = path.resolve(b.path);
     } else throw new BadRequestError("folder or path is required");
     if (!fs.existsSync(path.join(dir, "PROJECT.md"))) throw new BadRequestError(`PROJECT.md not found in ${dir}`);
-    return importFiles(db, readMarkdownFolder(dir), { dataDir: cfg.dataDir, removeMissingScenes: !!b.removeMissingScenes });
+    return importFiles(db, readMarkdownFolder(dir), { dataDir: cfg.dataDir, removeMissingScenes: !!b.removeMissingScenes, media: folderMedia(dir) });
   });
 
   // ---------- AI Assistant ----------

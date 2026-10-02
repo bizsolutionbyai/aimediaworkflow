@@ -159,10 +159,11 @@ export function CheckDialog() {
 
 export function ExportDialog() {
   const { spaceId, setPanel, toast, loadProjects, selectProject, selectSpace, refreshBundle } = useApp();
-  const [result, setResult] = useState<{ folder: string; dir: string; absoluteDir: string; files: string[] } | null>(null);
+  const [result, setResult] = useState<{ folder: string; dir: string; absoluteDir: string; files: string[]; mediaCount?: number } | null>(null);
   const [exportsList, setExportsList] = useState<{ folder: string; modifiedAt: string }[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [removeMissing, setRemoveMissing] = useState(false);
+  const [includeMedia, setIncludeMedia] = useState(true);
   const [busy, setBusy] = useState(false);
   const dirRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -195,10 +196,19 @@ export function ExportDialog() {
   const importPicked = async (list: FileList | null) => {
     if (!list?.length) return;
     const files: Record<string, string> = {};
-    for (const f of Array.from(list)) if (f.name.toLowerCase().endsWith(".md")) files[(f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name] = await f.text();
+    const media: Record<string, string> = {};
+    for (const f of Array.from(list)) {
+      const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+      if (f.name.toLowerCase().endsWith(".md")) files[rel] = await f.text();
+      else {
+        // ".../media/assets/prj_x/file.jpg" → "assets/prj_x/file.jpg" (path relative to data/)
+        const m = rel.match(/(?:^|\/)media\/(.+)$/);
+        if (m) media[m[1]] = await toBase64(f);
+      }
+    }
     setBusy(true);
     try {
-      await afterImport(await post("/api/import", { files, removeMissingScenes: removeMissing }));
+      await afterImport(await post("/api/import", { files, media, removeMissingScenes: removeMissing }));
     } catch (e) {
       toast("error", errorText(e));
     } finally {
@@ -211,12 +221,15 @@ export function ExportDialog() {
       <div className="space-y-4">
         <Section title="Export markdown">
           <p className="text-zinc-400">Writes PROJECT.md, MASTER-SCRIPT.md, STORYBOARD.md, WORKFLOW.md, PROMPTS.md, ASSETS.md and scenes/SCENE-XX.md. API keys are never written. Save the canvas first to include the latest workflow.</p>
+          <label className="flex items-center gap-2 text-zinc-300">
+            <input type="checkbox" checked={includeMedia} onChange={(e) => setIncludeMedia(e.target.checked)} /> Include media files (reference images, outputs) in <code>media/</code> so the folder is self-contained
+          </label>
           <Button
             variant="primary"
             disabled={!spaceId || busy}
             onClick={async () => {
               try {
-                setResult(await post(`/api/spaces/${spaceId}/export`));
+                setResult(await post(`/api/spaces/${spaceId}/export`, { includeMedia }));
               } catch (e) {
                 toast("error", errorText(e));
               }
@@ -226,7 +239,7 @@ export function ExportDialog() {
           </Button>
           {result && (
             <div className="rounded border border-emerald-500/40 bg-emerald-500/5 p-2">
-              <div className="text-emerald-300">Exported to <code>{result.absoluteDir}</code></div>
+              <div className="text-emerald-300">Exported to <code>{result.absoluteDir}</code>{result.mediaCount ? ` (+${result.mediaCount} media files)` : ""}</div>
               <ul className="mt-1 grid grid-cols-2 font-mono text-[11px] text-zinc-400">{result.files.map((f) => <li key={f}>{f}</li>)}</ul>
             </div>
           )}
@@ -265,6 +278,15 @@ export function ExportDialog() {
       </div>
     </Modal>
   );
+}
+
+function toBase64(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(f);
+  });
 }
 
 export function SettingsDialog() {

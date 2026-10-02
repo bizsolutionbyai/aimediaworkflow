@@ -16,14 +16,18 @@ import {
 import type { ProviderRegistry } from "@amw/providers";
 import type { Db } from "../db";
 import { loadBundle } from "../repo";
-import { resolveData } from "./storage";
+import { resolveData, writeDataFile } from "./storage";
 import { recordVersion } from "./versions";
 
 export function exportFolderName(projectName: string, spaceName: string): string {
   return `${slugify(projectName)}--${slugify(spaceName)}`;
 }
 
-export async function exportSpace(db: Db, spaceId: string, exportDir: string, registry: ProviderRegistry) {
+/**
+ * Writes the export folder. With `includeMedia`, reference assets and generated outputs are copied to
+ * `media/<path relative to data>` so the folder is self-contained (import copies them back).
+ */
+export async function exportSpace(db: Db, spaceId: string, exportDir: string, registry: ProviderRegistry, opts: { includeMedia?: boolean; dataDir?: string } = {}) {
   const bundle = await loadBundle(db, spaceId);
   const files = exportSpaceToMarkdown(bundle, { exportedAt: new Date().toISOString(), providers: registry.list(), providerDefaults: registry.defaults() });
   const folder = exportFolderName(bundle.project.name, bundle.space.name);
@@ -35,7 +39,19 @@ export async function exportSpace(db: Db, spaceId: string, exportDir: string, re
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, content, "utf8");
   }
-  return { folder, dir, files: Object.keys(files).sort() };
+  fs.rmSync(path.join(dir, "media"), { recursive: true, force: true });
+  let mediaCount = 0;
+  if (opts.includeMedia && opts.dataDir) {
+    for (const rel of [...bundle.assets.map((a) => a.path), ...bundle.outputs.map((o) => o.path)]) {
+      const src = resolveData(opts.dataDir, rel);
+      if (!fs.existsSync(src)) continue;
+      const dst = path.join(dir, "media", ...rel.split("/"));
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(src, dst);
+      mediaCount++;
+    }
+  }
+  return { folder, dir, files: Object.keys(files).sort(), mediaCount };
 }
 
 export function listExports(exportDir: string) {
@@ -65,6 +81,16 @@ export interface ImportOptions {
   /** Delete scenes that exist in the app but have no scene file. Default false. */
   removeMissingScenes?: boolean;
   dataDir: string;
+  /** Returns the bytes of `media/<relPath>` from the imported folder, if present. */
+  media?: (relPath: string) => Uint8Array | null;
+}
+
+/** Media lookup for an export folder on disk. */
+export function folderMedia(dir: string) {
+  return (rel: string) => {
+    const f = path.join(dir, "media", ...rel.split("/"));
+    return fs.existsSync(f) ? new Uint8Array(fs.readFileSync(f)) : null;
+  };
 }
 
 export interface ImportSummary {
@@ -130,8 +156,14 @@ export async function importFiles(db: Db, files: Record<string, string>, opts: I
       exists = false;
     }
     if (!exists) {
-      s.warnings.push(`asset ${a.id}: file ${a.path} not found in data directory; not registered`);
-      continue;
+      const bytes = opts.media?.(a.path);
+      if (bytes) {
+        writeDataFile(opts.dataDir, a.path, bytes);
+        note("created", `file ${a.path}`);
+      } else {
+        s.warnings.push(`asset ${a.id}: file ${a.path} not found in data directory or export media/; not registered`);
+        continue;
+      }
     }
     await db.asset.create({ data: { ...a, projectId: project.id, spaceId } });
     note("created", `asset ${a.id}`);

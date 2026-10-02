@@ -8,10 +8,11 @@ import { openaiLlm } from "./llm/openai";
 import { googleVeo } from "./video/google-veo";
 import { openaiSora } from "./video/openai-sora";
 import { elevenlabs } from "./voice/elevenlabs";
+import { replicateLipSync } from "./lipsync/replicate";
 import { openaiTts } from "./voice/openai-tts";
-import { toInfo, type AnyProvider, type Env, type ImageProvider, type LlmProvider, type VideoProvider, type VoiceProvider } from "./types";
+import { toInfo, type AnyProvider, type Env, type ImageProvider, type LipSyncProvider, type LlmProvider, type VideoProvider, type VoiceProvider } from "./types";
 
-export const BUILTIN_PROVIDERS: AnyProvider[] = [openaiImage, googleImage, xaiImage, openaiSora, googleVeo, openaiTts, elevenlabs, anthropicLlm, openaiLlm];
+export const BUILTIN_PROVIDERS: AnyProvider[] = [openaiImage, googleImage, xaiImage, openaiSora, googleVeo, openaiTts, elevenlabs, replicateLipSync, anthropicLlm, openaiLlm];
 
 export class ProviderRegistry {
   private readonly providers = new Map<string, AnyProvider>();
@@ -47,6 +48,11 @@ export class ProviderRegistry {
     return p?.kind === "voice" ? p : undefined;
   }
 
+  lipsync(id: string): LipSyncProvider | undefined {
+    const p = this.get(id);
+    return p?.kind === "lipsync" ? p : undefined;
+  }
+
   llm(id: string): LlmProvider | undefined {
     const p = this.get(id);
     return p?.kind === "llm" ? p : undefined;
@@ -55,7 +61,7 @@ export class ProviderRegistry {
   /** Default provider id per kind, used when neither the node nor the scene picks one. */
   defaults(): Partial<Record<ProviderKind, string>> {
     const out: Partial<Record<ProviderKind, string>> = {};
-    for (const k of ["image", "video", "voice", "llm"] as const) {
+    for (const k of ["image", "video", "voice", "lipsync", "llm"] as const) {
       const p = this.defaultFor(k);
       if (p) out[k] = p.id;
     }

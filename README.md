@@ -54,6 +54,7 @@ GOOGLE_API_KEY=...           # Gemini image, Veo video
 GROK_API_KEY=...             # xAI Grok image
 ELEVENLABS_API_KEY=...       # ElevenLabs voice
 ANTHROPIC_API_KEY=...        # Claude for the AI Assistant
+REPLICATE_API_TOKEN=...      # Lip Sync (Replicate)
 ```
 
 Keys are read only by the local server. They are never stored in the database, sent to the browser, or written to exported Markdown.
@@ -68,7 +69,8 @@ npm run dev
 
 `npm run dev` starts the API on port 8787 and the Vite dev server on <http://127.0.0.1:5173> (open that one).
 
-Other commands: `npm test` (unit + integration tests), `npm run typecheck`, `npm run build`, `npm run start` (production build on port 8787).
+Other commands: `npm test` (unit + integration tests), `npm run typecheck`, `npm run build`, `npm run start` (production build on port 8787),
+`npm run smoke` (live provider check with your keys).
 All scripts work in Command Prompt, PowerShell and on macOS/Linux.
 
 ---
@@ -109,12 +111,14 @@ All scripts work in Command Prompt, PowerShell and on macOS/Linux.
    broken connections, missing assets, cycles). *Run* executes the graph in dependency order; nodes that already have outputs are reused
    unless **force** is ticked. A generator's **Generate** button runs just that node and its ancestors. Click the status bar to see the run log
    and cancel a run.
-8. **Outputs** — generated files are saved under `data/outputs/<space>/<node>/` and previewed on the node and in the editor.
+8. **Final Video** — joins the scene videos in order, adds each scene's voice-over (replace or mix with the clip audio) and writes
+   an `.srt` subtitle file from the dialogue (optional burn-in). Needs ffmpeg.
+9. **Outputs** — generated files are saved under `data/outputs/<space>/<node>/` and previewed on the node and in the editor.
    With `count > 1`, choose which output is the **input** for the next node.
-9. **Versions** — scenes, master script, references, prompt templates and the workflow keep a version on every save.
+10. **Versions** — scenes, master script, references, prompt templates and the workflow keep a version on every save.
    *Versions → show* lets you compare with the current state, restore, or save a named version.
-10. **Export MD / Import** — see below.
-11. **AI Assistant** — brief → master script + scenes + prompts, split scenes, write/improve prompts, continuity review.
+11. **Export MD / Import** — see below.
+12. **AI Assistant** — brief → master script + scenes + prompts, split scenes, write/improve prompts, continuity review.
     Results are editable drafts; nothing is saved until **Apply**.
 
 ## Markdown export / import (Claude Code workflow)
@@ -152,21 +156,24 @@ updates what changed (with a new version), creates what is new, and reports warn
 | `elevenlabs` | voice | `ELEVENLABS_API_KEY` | Implemented; not exercised against the live API. |
 | `anthropic` | assistant LLM | `ANTHROPIC_API_KEY` | Implemented (Messages API); not exercised against the live API. |
 | `openai-llm` | assistant LLM | `OPENAI_API_KEY` | Implemented (Chat Completions); not exercised against the live API. |
-| Lip Sync | video | — | **No adapter.** The node exists; running it fails with "Provider not configured". |
-| ffmpeg | Final Video concat | `FFMPEG_PATH` or PATH | Implemented and tested with real ffmpeg. |
+| `replicate-lipsync` | lip sync (Replicate Files API + prediction polling; model configurable) | `REPLICATE_API_TOKEN` | Implemented; flow tested with a stubbed API. Default model `sync/lipsync-2`; input field names configurable because they differ per model. Not exercised live. |
+| ffmpeg | Final Video: concat, scene voice-over (replace or mix), `.srt` subtitles, optional burn-in | `FFMPEG_PATH` or PATH | Implemented and tested with real ffmpeg (burn-in needs an ffmpeg build with libass). |
+
+Check providers with your own keys: `npm run smoke` lists them, `npm run smoke -- openai-image` (or `all`) makes one real, minimal call
+per provider and saves the result in `data/smoke/` (this uses a little provider credit).
 
 Vendor APIs and model names change; if a call fails, the job log shows the provider's error message.
 Model names can be overridden per node or with `<PROVIDER>_MODEL` in `.env`. Adding a provider: [docs/PROVIDER-SDK.md](docs/PROVIDER-SDK.md).
 
 ## Current limitations
 
-- Provider adapters have not been run against live vendor APIs in this repository (no keys in CI). Expect to adjust parameters if a vendor changed its API.
-- **Loop** is a pass-through node; **Condition** only supports "upstream produced outputs"; **Batch** sets the count of downstream generators.
-- **Final Video** concatenates video clips only (no audio mixing, transitions or subtitles yet). Voice audio is generated per scene but not muxed.
-- **Lip Sync** has no adapter.
-- Runs execute one at a time, nodes sequentially within a run (single local queue). Jobs interrupted by a server restart are marked FAILED.
-- Import does not copy media files: `ASSETS.md` lists paths relative to `data/`; assets whose files are missing are reported as warnings.
+- Provider adapters have not been run against live vendor APIs in this repository (no keys in CI). Use `npm run smoke` with your keys; expect to adjust parameters if a vendor changed its API.
+- **Loop** repeats the provider calls of the generators directly below it (variations); it does not iterate over a list of items.
+- **Final Video** has no transitions or background music; burned-in subtitles need an ffmpeg build with libass (otherwise the `.srt` file is still written).
+- Runs are queued one at a time; inside a run, independent nodes run in parallel (`MAX_PARALLEL_JOBS`, per-provider limit `PROVIDER_MAX_CONCURRENCY`). Jobs interrupted by a server restart are marked FAILED.
+- Import restores reference asset files only when the export included media (`media/` folder); generated outputs are copied in exports but not re-registered on import.
 - Workflow import uses the `Workflow JSON` block in `WORKFLOW.md`; edits to the human-readable tables there are not parsed.
+- Webhooks are delivered once (no retry queue).
 - Prompt templates are a global library (shared by all projects).
 - Single user, no authentication; the server listens on `127.0.0.1` only by default.
 
@@ -184,12 +191,16 @@ Model names can be overridden per node or with `<PROVIDER>_MODEL` in `.env`. Add
 start.bat / stop.bat / .env.example
 ```
 
+## MarketingOS integration (Phase 5)
+
+Set `INTEGRATION_TOKEN` in `.env` to enable the token-protected `/api/v1` API: create a whole production space from a product record
+in one call (references with image URLs, master script, storyboard), start runs, receive signed `run.finished` webhooks, download outputs,
+and export/import Markdown. See [docs/INTEGRATION-API.md](docs/INTEGRATION-API.md).
+
 ## Next recommended phase
 
-Phase 5 — **MarketingOS integration API**: an authenticated, versioned REST surface (`/api/v1`) over the existing services
-(create space from a product record, push references, trigger runs, webhook on run completion, fetch exported Markdown/outputs),
-plus: audio muxing and subtitles in Final Video, a lip-sync adapter, parallel job execution with per-provider rate limits,
-and live smoke tests per provider behind opt-in API keys.
+Multi-user and deployment: authentication for the UI, Postgres option, object storage for media, a durable job queue with webhook retries,
+plus background music/transitions in Final Video and per-project prompt libraries.
 
 ## Documentation
 
@@ -197,3 +208,4 @@ and live smoke tests per provider behind opt-in API keys.
 - [docs/WORKFLOW-SCHEMA.md](docs/WORKFLOW-SCHEMA.md) — workflow JSON, node types, statuses
 - [docs/MARKDOWN-SCHEMA.md](docs/MARKDOWN-SCHEMA.md) — export/import format
 - [docs/PROVIDER-SDK.md](docs/PROVIDER-SDK.md) — writing a provider adapter
+- [docs/INTEGRATION-API.md](docs/INTEGRATION-API.md) — `/api/v1` for MarketingOS, webhooks
