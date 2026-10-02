@@ -1,0 +1,210 @@
+// SQLite schema. JSON-shaped fields are stored as TEXT and parsed in backend/src/repo.ts.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Project {
+  id          String   @id
+  name        String
+  description String   @default("")
+  settings    String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  spaces      Space[]
+  assets      Asset[]
+}
+
+model Space {
+  id             String        @id
+  projectId      String
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name           String
+  description    String        @default("")
+  targetPlatform String        @default("")
+  aspectRatio    String        @default("9:16")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  references     Reference[]
+  masterScript   MasterScript?
+  scenes         Scene[]
+  workflow       Workflow?
+  outputs        Output[]
+  jobs           Job[]
+  runs           WorkflowRun[]
+}
+
+model Asset {
+  id        String   @id
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  spaceId   String?
+  kind      String
+  filename  String
+  path      String
+  mimeType  String
+  size      Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+model Reference {
+  id          String   @id
+  code        String
+  spaceId     String
+  space       Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  type        String
+  name        String
+  description String   @default("")
+  prompt      String   @default("")
+  settings    String   @default("{}")
+  assetIds    String   @default("[]")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([spaceId, code])
+}
+
+model MasterScript {
+  id                String   @id
+  spaceId           String   @unique
+  space             Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  title             String   @default("")
+  objective         String   @default("")
+  targetPlatform    String   @default("")
+  aspectRatio       String   @default("9:16")
+  duration          Int      @default(0)
+  characterId       String   @default("")
+  productId         String   @default("")
+  styleId           String   @default("")
+  voiceId           String   @default("")
+  globalInstruction String   @default("")
+  scriptText        String   @default("")
+  version           Int      @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Scene {
+  id             String   @id
+  code           String
+  spaceId        String
+  space          Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  masterScriptId String?
+  sceneNumber    Int
+  title          String   @default("")
+  duration       Int      @default(0)
+  script         String   @default("")
+  action         String   @default("")
+  dialogue       String   @default("")
+  camera         String   @default("")
+  shotType       String   @default("")
+  cameraMovement String   @default("")
+  location       String   @default("")
+  lighting       String   @default("")
+  expression     String   @default("")
+  characterId    String   @default("")
+  productId      String   @default("")
+  styleId        String   @default("")
+  voiceId        String   @default("")
+  imagePrompt    String   @default("")
+  videoPrompt    String   @default("")
+  voicePrompt    String   @default("")
+  continuity     String   @default("")
+  imageProvider  String   @default("")
+  videoProvider  String   @default("")
+  voiceProvider  String   @default("")
+  imageStatus    String   @default("NONE")
+  videoStatus    String   @default("NONE")
+  voiceStatus    String   @default("NONE")
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([spaceId, code])
+}
+
+model PromptTemplate {
+  id          String   @id
+  name        String
+  category    String
+  description String   @default("")
+  template    String
+  variables   String   @default("[]")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Workflow {
+  id        String   @id
+  spaceId   String   @unique
+  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  json      String
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EntityVersion {
+  id         String   @id
+  entityType String
+  entityId   String
+  version    Int
+  note       String   @default("")
+  snapshot   String
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model WorkflowRun {
+  id         String    @id
+  spaceId    String
+  space      Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  status     String
+  order      String    @default("[]")
+  error      String?
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+}
+
+model Job {
+  id          String    @id
+  runId       String?
+  spaceId     String
+  space       Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  nodeId      String
+  nodeType    String
+  status      String
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(2)
+  error       String?
+  logs        String    @default("[]")
+  outputIds   String    @default("[]")
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+}
+
+model Output {
+  id        String   @id
+  spaceId   String
+  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  sceneId   String?
+  nodeId    String
+  jobId     String?
+  kind      String
+  path      String
+  provider  String
+  model     String   @default("")
+  prompt    String   @default("")
+  index     Int      @default(0)
+  selected  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}

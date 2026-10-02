@@ -1,0 +1,30 @@
+{
+  "name": "ai-media-workflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first visual workflow canvas for AI product media: projects, spaces, references, master script, scenes, prompts, provider adapters and Markdown export/import.",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "providers",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "setup": "npm run migrate -w backend",
+    "dev": "npm run setup && concurrently -k -n api,web -c cyan,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build -w frontend",
+    "start": "npm run setup && npm run build && npm run start -w backend",
+    "test": "vitest run",
+    "typecheck": "tsc -p shared && tsc -p providers && tsc -p backend && tsc -p frontend",
+    "smoke": "npm run smoke -w backend --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

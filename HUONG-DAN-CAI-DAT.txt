@@ -1,0 +1,74 @@
+﻿AI MEDIA WORKFLOW - HƯỚNG DẪN CÀI ĐẶT VÀ CHẠY TRÊN WINDOWS 10/11
+==================================================================
+
+CHẠY NHANH (1 bước)
+-------------------
+1. Tải mã nguồn về và giải nén (ví dụ vào C:\AIMediaWorkflow).
+   - Trên GitHub: nút "Code" -> "Download ZIP".
+   - Nên đặt ở thư mục bạn có quyền ghi, KHÔNG đặt trong C:\Program Files.
+2. Bấm đúp file  khoidong.bat
+   - Nếu Windows hiện "Windows protected your PC": bấm "More info" -> "Run anyway".
+3. Lần đầu tiên script sẽ tự làm hết (cần Internet, khoảng 3-10 phút):
+   - Nếu máy chưa có Node.js 22.12 trở lên: tự tải Node.js 22 LTS bản portable vào thư mục runtime\node
+     (không cần quyền admin, không ảnh hưởng máy).
+   - Tạo file .env từ .env.example.
+   - Cài thư viện (npm install).
+   - Tạo cơ sở dữ liệu data\app.db.
+   - Build giao diện.
+   - Khởi động và tự mở trình duyệt tại http://127.0.0.1:8787
+4. Những lần sau chỉ cần bấm khoidong.bat, ứng dụng mở trong vài giây.
+
+TẮT ỨNG DỤNG
+------------
+- Đóng cửa sổ đen (cửa sổ khoidong), hoặc bấm đúp  dung.bat
+- Bấm khoidong.bat khi ứng dụng đang chạy sẽ chỉ mở lại trình duyệt.
+
+THÊM API KEY (tùy chọn - để tạo ảnh / video / giọng nói thật)
+-------------------------------------------------------------
+1. Mở file .env bằng Notepad (file nằm cạnh khoidong.bat).
+2. Điền key bạn có, ví dụ:
+     OPENAI_API_KEY=sk-...
+     GOOGLE_API_KEY=...
+     GROK_API_KEY=...
+     ELEVENLABS_API_KEY=...
+     REPLICATE_API_TOKEN=...
+     ANTHROPIC_API_KEY=...
+3. Lưu file, chạy dung.bat rồi khoidong.bat.
+Không có key, ứng dụng vẫn dùng được để thiết kế workflow, viết kịch bản, prompt và xuất Markdown.
+Các node tạo ảnh/video sẽ báo "Provider not configured".
+Key chỉ nằm trên máy bạn, không bao giờ được ghi vào file Markdown xuất ra.
+
+GHÉP VIDEO CUỐI (Final Video) - tùy chọn
+----------------------------------------
+Cần ffmpeg. Cài bằng lệnh (mở Command Prompt):
+     winget install Gyan.FFmpeg
+hoặc tải từ https://www.gyan.dev/ffmpeg/builds/ rồi điền đường dẫn ffmpeg.exe vào .env:
+     FFMPEG_PATH=C:\ffmpeg\bin\ffmpeg.exe
+
+DỮ LIỆU NẰM Ở ĐÂU
+-----------------
+- data\app.db        : cơ sở dữ liệu (project, space, scene, workflow, phiên bản)
+- data\assets\       : ảnh/video/âm thanh tham chiếu bạn upload
+- data\outputs\      : ảnh/video/giọng nói được tạo ra
+- exports\           : các thư mục Markdown khi bấm "Export MD"
+Sao lưu: chỉ cần copy thư mục data và exports.
+
+XỬ LÝ LỖI THƯỜNG GẶP
+--------------------
+- "Khong lay duoc danh sach phien ban Node.js" / lỗi tải: kiểm tra Internet, tường lửa công ty.
+  Có thể tự cài Node.js 22 LTS từ https://nodejs.org rồi chạy lại khoidong.bat.
+- Lỗi khi cài thư viện: xóa thư mục node_modules rồi chạy lại khoidong.bat.
+- Cổng 8787 bị chiếm: sửa PORT=8790 trong .env.
+- Muốn cài lại Node.js portable: xóa thư mục runtime rồi chạy lại khoidong.bat.
+
+CẬP NHẬT PHIÊN BẢN MỚI
+---------------------
+Tải bản mới, chép đè lên thư mục cũ (giữ nguyên data, exports, .env), rồi chạy khoidong.bat.
+Thư viện, cơ sở dữ liệu và giao diện sẽ tự cập nhật.
+
+DÀNH CHO LẬP TRÌNH VIÊN
+-----------------------
+npm install
+npm run dev      (giao diện có hot reload tại http://127.0.0.1:5173)
+npm test
+Xem README.md và thư mục docs\ để biết kiến trúc, định dạng workflow, Markdown, provider và API tích hợp.
