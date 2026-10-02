@@ -10,3 +10,4 @@ export * from "./defaultPrompts";
 export * from "./markdown/format";
 export * from "./markdown/export";
 export * from "./markdown/import";
+export * from "./graphBuilder";
