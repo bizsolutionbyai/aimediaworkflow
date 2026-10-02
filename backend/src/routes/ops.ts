@@ -18,11 +18,11 @@ export function opsRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get("/api/health", async () => ({ ok: true, dataDir: cfg.dataDir, exportDir: cfg.exportDir }));
 
   /** Provider discovery. Returns ids, labels and whether a key is present — never the key itself. */
-  app.get("/api/providers", async () => ({ providers: registry.list(), ffmpeg: await ffmpegAvailable(cfg.env) }));
+  app.get("/api/providers", async () => ({ providers: registry.list(), defaults: registry.defaults(), ffmpeg: await ffmpegAvailable(cfg.env) }));
 
   // ---------- Consistency check ----------
   app.post<P<"id">>("/api/spaces/:id/check", async (req) => {
-    const report = checkConsistency(await loadBundle(db, req.params.id), registry.list());
+    const report = checkConsistency(await loadBundle(db, req.params.id), registry.list(), registry.defaults());
     return { ...report, text: formatCheckReport(report) };
   });
 
@@ -69,7 +69,7 @@ export function opsRoutes(app: FastifyInstance, ctx: AppContext) {
 
   // ---------- Markdown export / import ----------
   app.post<P<"id">>("/api/spaces/:id/export", async (req) => {
-    const r = await exportSpace(db, req.params.id, cfg.exportDir, registry.list());
+    const r = await exportSpace(db, req.params.id, cfg.exportDir, registry);
     return { ...r, dir: path.relative(cfg.rootDir, r.dir).split(path.sep).join("/") || r.dir, absoluteDir: r.dir };
   });
 

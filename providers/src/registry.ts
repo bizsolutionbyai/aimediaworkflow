@@ -52,6 +52,16 @@ export class ProviderRegistry {
     return p?.kind === "llm" ? p : undefined;
   }
 
+  /** Default provider id per kind, used when neither the node nor the scene picks one. */
+  defaults(): Partial<Record<ProviderKind, string>> {
+    const out: Partial<Record<ProviderKind, string>> = {};
+    for (const k of ["image", "video", "voice", "llm"] as const) {
+      const p = this.defaultFor(k);
+      if (p) out[k] = p.id;
+    }
+    return out;
+  }
+
   /** First configured provider of a kind, preferring DEFAULT_<KIND>_PROVIDER from env. */
   defaultFor(kind: ProviderKind): ProviderInfo | undefined {
     const list = this.list(kind);

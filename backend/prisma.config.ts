@@ -8,5 +8,6 @@ const dataDir = path.resolve(here, "..", process.env.DATA_DIR ?? "data");
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
-  datasource: { url: `file:${path.join(dataDir, "app.db")}` },
+  // Forward slashes keep the SQLite URL valid on Windows too.
+  datasource: { url: `file:${path.join(dataDir, "app.db").split(path.sep).join("/")}` },
 });

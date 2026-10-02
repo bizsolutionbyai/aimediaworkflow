@@ -103,7 +103,7 @@ export class WorkflowEngine {
 
   async start(spaceId: string, opts: RunOptions = {}) {
     const bundle = await loadBundle(this.db, spaceId);
-    const report = checkConsistency(bundle, this.registry.list());
+    const report = checkConsistency(bundle, this.registry.list(), this.registry.defaults());
     let plan;
     try {
       plan = buildExecutionPlan(bundle.workflow, opts.targets);
@@ -406,7 +406,7 @@ export class WorkflowEngine {
         return { status: "SUCCESS", outputs: outs };
       }
       case "export": {
-        const r = await exportSpace(this.db, bundle.space.id, this.cfg.exportDir, this.registry.list());
+        const r = await exportSpace(this.db, bundle.space.id, this.cfg.exportDir, this.registry);
         log(`Exported ${r.files.length} files to ${r.folder}`);
         return { status: "SUCCESS", outputs: [] };
       }
@@ -419,7 +419,7 @@ export class WorkflowEngine {
       }
       case "imageGenerator":
       case "imageEditor": {
-        const providerId = resolveNodeProvider(doc, node, bundle.scenes);
+        const providerId = resolveNodeProvider(doc, node, bundle.scenes, this.registry.defaults());
         const provider = this.registry.image(providerId);
         if (!provider) throw new ProviderNotConfiguredError(providerId || "image", "an image provider on this node or scene");
         let prompt = override;
@@ -454,7 +454,7 @@ export class WorkflowEngine {
         return { status: "SUCCESS", outputs: outs };
       }
       case "videoGenerator": {
-        const providerId = resolveNodeProvider(doc, node, bundle.scenes);
+        const providerId = resolveNodeProvider(doc, node, bundle.scenes, this.registry.defaults());
         const provider = this.registry.video(providerId);
         if (!provider) throw new ProviderNotConfiguredError(providerId || "video", "a video provider on this node or scene");
         const src = upOutputs("image")[0];
@@ -477,7 +477,7 @@ export class WorkflowEngine {
         return { status: "SUCCESS", outputs: outs };
       }
       case "voiceGenerator": {
-        const providerId = resolveNodeProvider(doc, node, bundle.scenes);
+        const providerId = resolveNodeProvider(doc, node, bundle.scenes, this.registry.defaults());
         const provider = this.registry.voice(providerId);
         if (!provider) throw new ProviderNotConfiguredError(providerId || "voice", "a voice provider on this node or scene");
         let text = ups.map((u) => u.result.text).find(Boolean) ?? "";

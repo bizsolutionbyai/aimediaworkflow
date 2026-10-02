@@ -43,23 +43,23 @@ export function findUpstreamScene(doc: WorkflowDoc, nodeId: string): WorkflowNod
   return undefined;
 }
 
-/** Provider for a generator node: explicit node setting, else the upstream scene's provider field. */
-export function resolveNodeProvider(doc: WorkflowDoc, node: WorkflowNode, scenes: Scene[]): string {
+/** Default provider id per kind (DEFAULT_<KIND>_PROVIDER or the first configured provider). */
+export type ProviderDefaults = Partial<Record<"image" | "video" | "voice" | "llm", string>>;
+
+/** Provider for a generator node: explicit node setting, else the upstream scene's provider field, else the default. */
+export function resolveNodeProvider(doc: WorkflowDoc, node: WorkflowNode, scenes: Scene[], defaults: ProviderDefaults = {}): string {
   const explicit = typeof node.data.provider === "string" ? node.data.provider : "";
   if (explicit) return explicit;
+  const kind = getNodeTypeDef(node.type)?.providerKind;
   const sceneNode = findUpstreamScene(doc, node.id);
   const scene = sceneNode ? scenes.find((s) => s.id === sceneNode.data.sceneId) : undefined;
-  if (!scene) return "";
-  const kind = getNodeTypeDef(node.type)?.providerKind;
-  if (kind === "image") return scene.imageProvider;
-  if (kind === "video") return scene.videoProvider;
-  if (kind === "voice") return scene.voiceProvider;
-  return "";
+  const fromScene = !scene ? "" : kind === "image" ? scene.imageProvider : kind === "video" ? scene.videoProvider : kind === "voice" ? scene.voiceProvider : "";
+  return fromScene || (kind ? defaults[kind] ?? "" : "");
 }
 
 const IMAGE_SOURCE_TYPES = new Set(["imageGenerator", "imageEditor", "imageReference", "merge", "batch", "condition", "delay", "loop"]);
 
-export function checkConsistency(bundle: SpaceBundle, providers: ProviderInfo[]): CheckReport {
+export function checkConsistency(bundle: SpaceBundle, providers: ProviderInfo[], defaults: ProviderDefaults = {}): CheckReport {
   const items: CheckItem[] = [];
   const { references, scenes, masterScript, workflow, assets } = bundle;
   const refByCode = new Map(references.map((r) => [r.code, r]));
@@ -141,7 +141,7 @@ export function checkConsistency(bundle: SpaceBundle, providers: ProviderInfo[])
         items.push({ level: "warning", code: "unset_reference", subject, message: `${subject} has no reference selected`, nodeId: node.id });
     }
     if (def.providerKind && def.providerKind !== "llm" && node.type !== "storyboardGenerator") {
-      const pid = resolveNodeProvider(workflow, node, scenes);
+      const pid = resolveNodeProvider(workflow, node, scenes, defaults);
       const p = pid ? providerById.get(pid) : undefined;
       if (!pid) items.push({ level: "error", code: "provider_unset", subject, message: `${def.label} provider not configured`, nodeId: node.id });
       else if (!p) items.push({ level: "error", code: "provider_unknown", subject, message: `${def.label} uses unknown provider "${pid}"`, nodeId: node.id });

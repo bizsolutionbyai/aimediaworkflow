@@ -12,8 +12,8 @@ import {
   slugify,
   stripSecrets,
   type ImportedMarkdown,
-  type ProviderInfo,
 } from "@amw/shared";
+import type { ProviderRegistry } from "@amw/providers";
 import type { Db } from "../db";
 import { loadBundle } from "../repo";
 import { resolveData } from "./storage";
@@ -23,9 +23,9 @@ export function exportFolderName(projectName: string, spaceName: string): string
   return `${slugify(projectName)}--${slugify(spaceName)}`;
 }
 
-export async function exportSpace(db: Db, spaceId: string, exportDir: string, providers: ProviderInfo[]) {
+export async function exportSpace(db: Db, spaceId: string, exportDir: string, registry: ProviderRegistry) {
   const bundle = await loadBundle(db, spaceId);
-  const files = exportSpaceToMarkdown(bundle, { exportedAt: new Date().toISOString(), providers });
+  const files = exportSpaceToMarkdown(bundle, { exportedAt: new Date().toISOString(), providers: registry.list(), providerDefaults: registry.defaults() });
   const folder = exportFolderName(bundle.project.name, bundle.space.name);
   const dir = path.join(exportDir, folder);
   // Remove stale scene files so deleted scenes do not linger in the export.

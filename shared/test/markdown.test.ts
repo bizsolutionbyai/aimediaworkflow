@@ -102,4 +102,14 @@ describe("consistency checker", () => {
     expect(msgs).toContain("ok:scene_ok");
     expect(r.ok).toBe(false);
   });
+
+  it("falls back to the default provider when node and scene leave it empty", () => {
+    const b = makeBundle();
+    b.workflow.nodes.find((n) => n.id === "img_1")!.data.provider = "";
+    b.scenes[0].imageProvider = "";
+    const without = checkConsistency(b, providers);
+    expect(without.items.some((i) => i.code === "provider_unset" && i.nodeId === "img_1")).toBe(true);
+    const withDefault = checkConsistency(b, providers, { image: "openai-image" });
+    expect(withDefault.items.some((i) => i.nodeId === "img_1" && i.code.startsWith("provider"))).toBe(false);
+  });
 });

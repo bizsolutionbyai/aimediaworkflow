@@ -199,7 +199,7 @@ export class Assistant {
 
   async continuity(spaceId: string, providerId?: string) {
     const b = await loadBundle(this.db, spaceId);
-    const deterministic = checkConsistency(b, this.registry.list()).items.filter((i) => i.level !== "ok" && /reference|character|product|asset/.test(i.code));
+    const deterministic = checkConsistency(b, this.registry.list(), this.registry.defaults()).items.filter((i) => i.level !== "ok" && /reference|character|product|asset/.test(i.code));
     const r = await this.askJson<{ issues?: { severity?: string; sceneId?: string; message?: string }[] }>(
       `Context:\n${contextOf(b)}\n\nTask: review continuity across all scenes. Look for: inconsistent product descriptions (name, color, packaging, size), character appearance drift, missing or wrong reference IDs, dialogue that contradicts the objective, scene durations that do not add up.\nReturn {"issues":[{"severity":"error"|"warning"|"info","sceneId":string,"message":string}]}.`,
       providerId,

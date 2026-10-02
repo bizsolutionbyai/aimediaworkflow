@@ -4,7 +4,7 @@ import { buildPromptLayers } from "../prompt";
 import { resolveSceneRefs } from "../prompt";
 import { getNodeTypeDef } from "../nodeTypes";
 import { buildExecutionPlan, findCycle, type WorkflowDoc } from "../workflow";
-import { resolveNodeProvider } from "../consistency";
+import { resolveNodeProvider, type ProviderDefaults } from "../consistency";
 import type { Asset, Output, ProviderInfo, Reference, Scene, SpaceBundle } from "../types";
 import {
   MARKDOWN_SCHEMA_VERSION,
@@ -19,6 +19,7 @@ import {
 export interface ExportOptions {
   exportedAt?: string;
   providers?: ProviderInfo[];
+  providerDefaults?: ProviderDefaults;
 }
 
 export type MarkdownFiles = Record<string, string>;
@@ -293,7 +294,7 @@ function exportWorkflow(b: SpaceBundle, opts: ExportOptions): string {
   const providerLines = doc.nodes
     .filter((n) => getNodeTypeDef(n.type)?.providerKind)
     .map((n) => {
-      const pid = resolveNodeProvider(doc, n, b.scenes);
+      const pid = resolveNodeProvider(doc, n, b.scenes, opts.providerDefaults);
       const p = providers.find((x) => x.id === pid);
       const cfg = {
         node_id: n.id,

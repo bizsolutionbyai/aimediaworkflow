@@ -39,7 +39,7 @@ const stubFetch: typeof fetch = async (input, init) => {
   }
   if (url.endsWith("/videos") && method === "POST") return Response.json({ id: "v1", status: "queued" });
   if (url.endsWith("/videos/v1")) return Response.json({ id: "v1", status: "completed" });
-  if (url.endsWith("/videos/v1/content")) return new Response(mp4 ?? new Uint8Array([0, 0, 0, 0]), { headers: { "content-type": "video/mp4" } });
+  if (url.endsWith("/videos/v1/content")) return new Response((mp4 ?? new Uint8Array([0, 0, 0, 0])) as unknown as BodyInit, { headers: { "content-type": "video/mp4" } });
   return new Response("not found", { status: 404 });
 };
 
